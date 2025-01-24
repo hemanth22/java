@@ -12,9 +12,8 @@ limitations under the License.
 */
 package io.kubernetes.client;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.kubernetes.client.util.WebSocketStreamHandler;
 import java.io.ByteArrayInputStream;
@@ -25,14 +24,14 @@ import java.nio.charset.Charset;
 import okhttp3.Request;
 import okhttp3.WebSocket;
 import okio.ByteString;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class WebsocketStreamHandlerTest {
+class WebsocketStreamHandlerTest {
 
   private static String testProtocol = "test-protocol";
 
   @Test
-  public void testHandlerReceivingData() throws IOException {
+  void handlerReceivingData() throws IOException {
     int testStreamId = 0;
     byte testData = 1;
     byte[] testDatas =
@@ -53,18 +52,14 @@ public class WebsocketStreamHandlerTest {
     inputStream.read(receivingData);
     handler.close();
 
-    assertEquals(testData, receivingData[0]);
-    assertEquals(testData, receivingData[1]);
-    assertTrue(mockWebSocket.closed);
+    assertThat(receivingData[0]).isEqualTo(testData);
+    assertThat(receivingData[1]).isEqualTo(testData);
+    assertThat(mockWebSocket.closed).isTrue();
   }
 
   @Test
-  public void testHandlerSendingData() throws IOException {
+  void handlerSendingData() throws IOException {
     int testStreamId = 0;
-    byte testData = 1;
-    byte[] testDatas =
-        new byte[] {(byte) testStreamId, testData, testData}; // first byte stands for stream id,
-    ByteArrayInputStream testBytesInputStream = new ByteArrayInputStream(testDatas);
 
     WebSocketStreamHandler handler = new WebSocketStreamHandler();
     MockWebSocket mockWebSocket = new MockWebSocket();
@@ -82,16 +77,12 @@ public class WebsocketStreamHandlerTest {
     outputStream.write(bytes);
     outputStream.flush();
 
-    assertArrayEquals(output, mockWebSocket.data);
+    assertThat(mockWebSocket.data).containsExactly(output);
   }
 
   @Test
-  public void testHandlerSendingLargeData() throws IOException {
+  void handlerSendingLargeData() throws IOException {
     int testStreamId = 0;
-    byte testData = 1;
-    byte[] testDatas =
-        new byte[] {(byte) testStreamId, testData, testData}; // first byte stands for stream id,
-    ByteArrayInputStream testBytesInputStream = new ByteArrayInputStream(testDatas);
 
     WebSocketStreamHandler handler = new WebSocketStreamHandler();
     MockWebSocket mockWebSocket = new MockWebSocket();
@@ -119,7 +110,61 @@ public class WebsocketStreamHandlerTest {
     outputStream.write(bytes);
     outputStream.flush();
 
-    assertArrayEquals(output, mockWebSocket.data);
+    assertThat(mockWebSocket.data).containsExactly(output);
+  }
+
+  @Test
+  void handlerSendingClose() throws IOException {
+    int testStreamId = 0;
+
+    WebSocketStreamHandler handler = new WebSocketStreamHandler();
+    MockWebSocket mockWebSocket = new MockWebSocket();
+
+    handler.open("v5.channel.k8s.io", mockWebSocket);
+
+    OutputStream outputStream = handler.getOutputStream(testStreamId);
+    outputStream.close();
+
+    byte[] output = {(byte) 255, (byte) testStreamId};
+    assertThat(mockWebSocket.data).containsExactly(output);
+  }
+
+  @Test
+  void handlerNotSendingClose() throws IOException {
+    int testStreamId = 0;
+
+    WebSocketStreamHandler handler = new WebSocketStreamHandler();
+    MockWebSocket mockWebSocket = new MockWebSocket();
+
+    handler.open("v4.channel.k8s.io", mockWebSocket);
+
+    OutputStream outputStream = handler.getOutputStream(testStreamId);
+    outputStream.close();
+
+    assertThat(mockWebSocket.data).isNull();
+  }
+
+  @Test
+  void handlerReceivingClosed() throws IOException {
+    int testStreamId = 0;
+    byte[] testDatas =
+        new byte[] {(byte) 255, (byte) testStreamId };
+    ByteArrayInputStream testBytesInputStream = new ByteArrayInputStream(testDatas);
+
+    WebSocketStreamHandler handler = new WebSocketStreamHandler();
+    MockWebSocket mockWebSocket = new MockWebSocket();
+
+    handler.open(testProtocol, mockWebSocket);
+
+    InputStream inputStream = handler.getInputStream(testStreamId);
+
+    // handler receiving
+    handler.bytesMessage(testBytesInputStream);
+
+    assertThat(inputStream.available() == 0);
+    assertThatThrownBy(() -> {
+      inputStream.read();
+    }).isInstanceOf(IOException.class);
   }
 
   private static class MockWebSocket implements WebSocket {
